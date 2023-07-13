@@ -1,9 +1,12 @@
 import {
+  Alert,
   Button,
   Card,
+  Collection,
   ColorMode,
   Flex,
   Heading,
+  Text,
   ToggleButton,
   ToggleButtonGroup,
   View,
@@ -14,12 +17,13 @@ import { API } from "aws-amplify";
 import { GraphQLQuery, GraphQLResult } from "@aws-amplify/api";
 import { ListTodosQuery } from "@/API";
 import { listTodos } from "@/graphql/queries";
-import { FormEvent, useContext, useState } from "react";
-import { ThemeContext } from "./_app";
+import { FormEvent, useState } from "react";
+import { Todo } from "@/models";
 
 export default function Home() {
   const [todos, setTodo] =
     useState<GraphQLResult<GraphQLQuery<ListTodosQuery>>>();
+  const [showSuccess, setShowSuccess] = useState(false);
 
   const onSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -28,31 +32,20 @@ export default function Home() {
     });
     setTodo(allTodos);
   };
-  const { setColorMode, colorMode } = useContext(ThemeContext);
+
   const { tokens } = useTheme();
 
   return (
-    <Flex direction={"column"} alignItems={"center"}>
-      <Heading level={1}>Todo Form</Heading>
-      <Card borderRadius={"1rem"} padding="0">
+    <Flex direction="row" height="100%" width="100%" justifyContent="stretch" gap="0">
         <Flex
-          direction={"column"}
-          alignItems={"center"}
-          gap={"1rem"}
-          padding="1rem"
+          direction="column"
+          gap="medium"
+          padding="xxl"
+          backgroundColor="background.primary"
         >
-          <ToggleButtonGroup
-            value={colorMode}
-            isExclusive
-            onChange={(value) => setColorMode(value as ColorMode)}
-          >
-            <ToggleButton value="light">Light</ToggleButton>
-            <ToggleButton value="dark">Dark</ToggleButton>
-            <ToggleButton value="system">System</ToggleButton>
-          </ToggleButtonGroup>
+          <Text>New ToDo</Text>
           <TodoForm
-            border={"1px solid black"}
-            borderRadius={"1rem"}
+            padding="0"
             onValidate={{
               title: (value, validateResponse) => {
                 if (value.length === 0) {
@@ -64,27 +57,44 @@ export default function Home() {
                 return validateResponse;
               },
             }}
+            onSuccess={() => {
+              setShowSuccess(true);
+              setTimeout(() => {
+                setShowSuccess(false);
+              }, 2000);
+            }}
           />
+          {showSuccess && (
+            <Alert variation="success">
+              Todo added!
+            </Alert>
+          )}
+
+        </Flex>
+        <Flex direction="column" flex="1" padding="xxl" backgroundColor="background.secondary">
           <Heading level={3}>List of Todos</Heading>
 
           <View as="form" onSubmit={onSubmit}>
             <Button type="submit">Show Todos</Button>
-            {todos?.data?.listTodos?.items.map((todo) => (
-              <View
-                color={tokens.colors.brand.primary[100]}
-                marginTop={"1rem"}
-                padding="1rem"
-                borderRadius={"1rem"}
-                border={"1px solid green"}
-                key={todo?.id}
-                textDecoration={todo?.completed ? "line-through" : ""}
-              >
+            <Collection
+              gap="small"
+              items={todos?.data?.listTodos?.items || []}
+            >
+              {(todo: Todo) => (
+                <Card
+                  variation="elevated"
+                  color={tokens.colors.brand.primary[100]}
+                  marginTop={"1rem"}
+                  padding="1rem"
+                  key={todo?.id}
+                  textDecoration={todo?.completed ? "line-through" : ""}
+                >
                 {todo?.title}
-              </View>
-            ))}
+              </Card>
+              )}
+            </Collection>
           </View>
         </Flex>
-      </Card>
     </Flex>
   );
 }
