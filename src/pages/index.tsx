@@ -1,40 +1,145 @@
 import {
-  Button,
   Card,
   ColorMode,
   Flex,
   Heading,
   ToggleButton,
   ToggleButtonGroup,
-  View,
-  useTheme,
 } from "@aws-amplify/ui-react";
 import TodoForm from "@/ui-components/TodoCreateForm";
-import { API } from "aws-amplify";
-import { GraphQLQuery, GraphQLResult } from "@aws-amplify/api";
-import { ListTodosQuery } from "@/API";
+import { API, graphqlOperation } from "aws-amplify";
+import { GraphQLQuery, GraphQLSubscription } from "@aws-amplify/api";
+import {
+  ListTodosQuery,
+  OnCreateTodoSubscription,
+  Todo,
+  DeleteTodoInput,
+  DeleteTodoMutation,
+  OnDeleteTodoSubscription,
+  UpdateTodoMutation,
+  UpdateTodoInput,
+  OnUpdateTodoSubscription,
+} from "@/API";
 import { listTodos } from "@/graphql/queries";
-import { FormEvent, useContext, useState } from "react";
+import {
+  onCreateTodo,
+  onDeleteTodo,
+  onUpdateTodo,
+} from "@/graphql/subscriptions";
+import { deleteTodo, updateTodo } from "@/graphql/mutations";
+import { useContext, useEffect, useState } from "react";
 import { ThemeContext } from "./_app";
+import { TodoViewer } from "@/components/Todo";
 
 export default function Home() {
-  const [todos, setTodo] =
-    useState<GraphQLResult<GraphQLQuery<ListTodosQuery>>>();
+  const [todos, setTodo] = useState<Todo[]>([]);
 
-  const onSubmit = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
+  const getTodos = async () => {
     const allTodos = await API.graphql<GraphQLQuery<ListTodosQuery>>({
       query: listTodos,
     });
-    setTodo(allTodos);
+    const filteredTodos = allTodos.data?.listTodos?.items.filter(
+      (todo) => !todo?._deleted
+    );
+    setTodo(filteredTodos as Todo[]);
   };
   const { setColorMode, colorMode } = useContext(ThemeContext);
-  const { tokens } = useTheme();
+
+  useEffect(() => {
+    console.log("running");
+    getTodos();
+    const sub = API.graphql<GraphQLSubscription<OnCreateTodoSubscription>>(
+      graphqlOperation(onCreateTodo)
+    ).subscribe({
+      next: ({ provider, value }) => {
+        console.log("create");
+        setTodo((prevValue) => [
+          ...prevValue,
+          value.data?.onCreateTodo as Todo,
+        ]);
+        console.log({ provider, value });
+      },
+      error: (error) => console.warn(error),
+    });
+
+    const del = API.graphql<GraphQLSubscription<OnDeleteTodoSubscription>>(
+      graphqlOperation(onDeleteTodo)
+    ).subscribe({
+      next: ({ provider, value }) => {
+        console.log("delete");
+        setTodo((prevValue) => {
+          const filteredValue = prevValue.filter(
+            (todo) => todo.id !== value.data?.onDeleteTodo?.id
+          );
+          return filteredValue;
+        });
+        console.log({ provider, value });
+      },
+      error: (error) => console.warn(error),
+    });
+
+    const update = API.graphql<GraphQLSubscription<OnUpdateTodoSubscription>>(
+      graphqlOperation(onUpdateTodo)
+    ).subscribe({
+      next: ({ provider, value }) => {
+        console.log("update");
+        setTodo((prevValue) => {
+          const filteredValue = prevValue.map((todo) => {
+            if (todo?.id === value.data?.onUpdateTodo?.id) {
+              return value.data.onUpdateTodo;
+            } else return todo;
+          });
+          return filteredValue;
+        });
+        console.log({ provider, value });
+      },
+      error: (error) => console.warn(error),
+    });
+
+    return () => {
+      sub.unsubscribe();
+      del.unsubscribe();
+      update.unsubscribe();
+    };
+  }, []);
+
+  const markCompletedTodo = async (
+    id: string,
+    completed: boolean,
+    _version: number
+  ) => {
+    console.log("marking completed", id, completed);
+
+    const todoDetails: UpdateTodoInput = {
+      id,
+      completed,
+      _version,
+    };
+    console.log("todoDetails", todoDetails);
+
+    await API.graphql<GraphQLQuery<UpdateTodoMutation>>({
+      query: updateTodo,
+      variables: { input: todoDetails },
+    });
+  };
+
+  const removeTodo = async (id: string, _version: number) => {
+    console.log("removing", id);
+    const todoDetails: DeleteTodoInput = {
+      id,
+      _version,
+    };
+
+    await API.graphql<GraphQLQuery<DeleteTodoMutation>>({
+      query: deleteTodo,
+      variables: { input: todoDetails },
+    });
+  };
 
   return (
     <Flex direction={"column"} alignItems={"center"}>
       <Heading level={1}>Todo Form</Heading>
-      <Card borderRadius={"1rem"} padding="0">
+      <Card borderRadius={"1rem"} padding="0" width="25%">
         <Flex
           direction={"column"}
           alignItems={"center"}
@@ -51,6 +156,7 @@ export default function Home() {
             <ToggleButton value="system">System</ToggleButton>
           </ToggleButtonGroup>
           <TodoForm
+            width="100%"
             border={"1px solid black"}
             borderRadius={"1rem"}
             onValidate={{
@@ -65,24 +171,11 @@ export default function Home() {
               },
             }}
           />
-          <Heading level={3}>List of Todos</Heading>
-
-          <View as="form" onSubmit={onSubmit}>
-            <Button type="submit">Show Todos</Button>
-            {todos?.data?.listTodos?.items.map((todo) => (
-              <View
-                color={tokens.colors.brand.primary[100]}
-                marginTop={"1rem"}
-                padding="1rem"
-                borderRadius={"1rem"}
-                border={"1px solid green"}
-                key={todo?.id}
-                textDecoration={todo?.completed ? "line-through" : ""}
-              >
-                {todo?.title}
-              </View>
-            ))}
-          </View>
+          <TodoViewer
+            markCompletedTodo={markCompletedTodo}
+            todos={todos}
+            removeTodo={removeTodo}
+          />
         </Flex>
       </Card>
     </Flex>

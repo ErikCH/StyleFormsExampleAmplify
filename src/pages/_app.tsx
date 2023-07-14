@@ -1,11 +1,12 @@
 import type { AppProps } from "next/app";
-import { Amplify } from "aws-amplify";
-import awsExports from "@/aws-exports";
-import "@aws-amplify/ui-react/styles.css";
 import { ColorMode, ThemeProvider } from "@aws-amplify/ui-react";
 import { theme } from "@/theme";
 import { createContext } from "react";
 import React from "react";
+
+import { Amplify } from "aws-amplify";
+import awsExports from "@/aws-exports";
+import "@aws-amplify/ui-react/styles.css";
 Amplify.configure(awsExports);
 
 export const ThemeContext = createContext<{
