@@ -1,100 +1,118 @@
 import {
   Alert,
-  Button,
   Card,
   Collection,
-  ColorMode,
   Flex,
   Heading,
   Text,
-  ToggleButton,
-  ToggleButtonGroup,
-  View,
   useTheme,
 } from "@aws-amplify/ui-react";
 import TodoForm from "@/ui-components/TodoCreateForm";
-import { API } from "aws-amplify";
-import { GraphQLQuery, GraphQLResult } from "@aws-amplify/api";
-import { ListTodosQuery } from "@/API";
+import { API, graphqlOperation } from "aws-amplify";
+import { GraphQLQuery, GraphQLSubscription } from "@aws-amplify/api";
+import { ListTodosQuery, Todo, OnCreateTodoSubscription } from "@/API";
 import { listTodos } from "@/graphql/queries";
-import { FormEvent, useState } from "react";
-import { Todo } from "@/models";
+import { onCreateTodo } from "@/graphql/subscriptions";
+import { useEffect, useState } from "react";
 
 export default function Home() {
-  const [todos, setTodo] =
-    useState<GraphQLResult<GraphQLQuery<ListTodosQuery>>>();
   const [showSuccess, setShowSuccess] = useState(false);
+  const [todos, setTodo] = useState<Todo[]>([]);
 
-  const onSubmit = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
+  const getTodos = async () => {
     const allTodos = await API.graphql<GraphQLQuery<ListTodosQuery>>({
       query: listTodos,
     });
-    setTodo(allTodos);
+
+    const filteredTodos = allTodos.data?.listTodos?.items
+      .filter((todo) => !todo?._deleted)
+      .sort(
+        (a, b) =>
+          new Date(a?.createdAt!).getTime() - new Date(b?.createdAt!).getTime()
+      );
+
+    setTodo(filteredTodos as Todo[]);
   };
+
+  useEffect(() => {
+    getTodos();
+    const sub = API.graphql<GraphQLSubscription<OnCreateTodoSubscription>>(
+      graphqlOperation(onCreateTodo)
+    ).subscribe({
+      next: ({ provider, value }) => {
+        setTodo((prevValue) => [
+          ...prevValue,
+          value.data?.onCreateTodo as Todo,
+        ]);
+      },
+      error: (error) => console.warn(error),
+    });
+
+    return () => sub.unsubscribe();
+  }, []);
 
   const { tokens } = useTheme();
 
   return (
-    <Flex direction="row" height="100%" width="100%" justifyContent="stretch" gap="0">
-        <Flex
-          direction="column"
-          gap="medium"
-          padding="xxl"
-          backgroundColor="background.primary"
-        >
-          <Text>New ToDo</Text>
-          <TodoForm
-            padding="0"
-            onValidate={{
-              title: (value, validateResponse) => {
-                if (value.length === 0) {
-                  return {
-                    hasError: true,
-                    errorMessage: "NOT GOOD!",
-                  };
-                }
-                return validateResponse;
-              },
-            }}
-            onSuccess={() => {
-              setShowSuccess(true);
-              setTimeout(() => {
-                setShowSuccess(false);
-              }, 2000);
-            }}
-          />
-          {showSuccess && (
-            <Alert variation="success">
-              Todo added!
-            </Alert>
-          )}
+    <Flex
+      direction="row"
+      height="100%"
+      width="100%"
+      justifyContent="stretch"
+      gap="0"
+    >
+      <Flex
+        direction="column"
+        gap="medium"
+        padding="xxl"
+        backgroundColor="background.primary"
+      >
+        <Text>New ToDo</Text>
+        <TodoForm
+          padding="0"
+          onValidate={{
+            title: (value, validateResponse) => {
+              if (value.trim().length === 0) {
+                return {
+                  hasError: true,
+                  errorMessage: "Please enter a value!",
+                };
+              }
+              return validateResponse;
+            },
+          }}
+          onSuccess={() => {
+            setShowSuccess(true);
+            setTimeout(() => {
+              setShowSuccess(false);
+            }, 2000);
+          }}
+        />
+        {showSuccess && <Alert variation="success">Todo added!</Alert>}
+      </Flex>
+      <Flex
+        direction="column"
+        flex="1"
+        padding="xxl"
+        backgroundColor="background.secondary"
+      >
+        <Heading level={3}>List of Todos</Heading>
 
-        </Flex>
-        <Flex direction="column" flex="1" padding="xxl" backgroundColor="background.secondary">
-          <Heading level={3}>List of Todos</Heading>
-
-          <View as="form" onSubmit={onSubmit}>
-            <Button type="submit">Show Todos</Button>
-            <Collection
-              gap="small"
-              items={todos?.data?.listTodos?.items || []}
+        <Collection gap="small" type="list" items={todos}>
+          {(todo) => (
+            <Card
+              variation="elevated"
+              color={tokens.colors.brand.primary[100]}
+              marginTop="1rem"
+              padding="1rem"
+              key={todo.id}
+              textDecoration={todo?.completed ? "line-through" : ""}
             >
-              {(todo: Todo) => (
-                <Card
-                  variation="elevated"
-                  color={tokens.colors.brand.primary[100]}
-                  marginTop={"1rem"}
-                  padding="1rem"
-                  key={todo?.id}
-                  textDecoration={todo?.completed ? "line-through" : ""}
-                >
-                {todo?.title}
-              </Card>
-              )}
-            </Collection>
-          </View>
-        </Flex>
+              {todo?.title}
+            </Card>
+          )}
+        </Collection>
+      </Flex>
     </Flex>
   );
 }
